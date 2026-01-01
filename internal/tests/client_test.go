@@ -48,7 +48,7 @@ func SetupGRPCClient(t *testing.T, fn func(*server.Config)) (
 		fn(cfg)
 	}
 
-	grpcServer, err := server.NewGRPCSever(cfg)
+	grpcServer, err := server.NewGRPCServer(cfg)
 	require.NoError(t, err)
 
 	go func() {

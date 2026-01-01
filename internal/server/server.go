@@ -1,18 +1,254 @@
+// package server
+
+// import (
+// 	"context"
+// 	"fmt"
+// 	"log"
+// 	"math/big"
+// 	"net"
+// 	"os"
+
+// 	"github.com/google/uuid"
+// 	"github.com/joho/godotenv"
+// 	grpc_err "github.com/srinathLN7/zkp_auth/api/v2/err"
+// 	api "github.com/srinathLN7/zkp_auth/api/v2/proto"
+// 	cp_zkp "github.com/srinathLN7/zkp_auth/internal/cpzkp"
+// 	"github.com/srinathLN7/zkp_auth/lib/util"
+// 	"google.golang.org/grpc"
+// )
+
+// type CPZKP interface {
+// 	InitCPZKPParams() (*cp_zkp.CPZKPParams, error)
+// }
+
+// type Config struct {
+// 	CPZKP CPZKP
+// }
+
+// type RegParams struct {
+// 	y1 *big.Int
+// 	y2 *big.Int
+// }
+
+// type AuthParams struct {
+// 	user string
+// 	c    *big.Int
+// 	r1   *big.Int
+// 	r2   *big.Int
+// }
+
+// type grpcServer struct {
+// 	api.UnimplementedAuthServer
+
+// 	// Simulate a server-side user directory
+// 	// store the `y1` and `y2` of the specific user
+// 	// Limited by in-memory non-persistence storage
+// 	RegDir map[string]RegParams
+
+// 	// Simulate a server-side authentication directory
+// 	// store the `c`, `y1` and `y2` of the specific user
+// 	// Limited by in-memory non-persistence storage
+// 	AuthDir map[string]AuthParams
+
+// 	*Config
+// }
+
+// func RunServer(config *Config) {
+
+// 	err := godotenv.Load(".env")
+// 	if err != nil {
+// 		log.Fatalf("error loading .env file: %v", err)
+// 		return
+// 	}
+
+// 	grpcServerAddr := os.Getenv("SERVER_ADDRESS")
+// 	listener, err := net.Listen("tcp", grpcServerAddr)
+// 	if err != nil {
+// 		log.Fatalf("failed to dial server: %v", err)
+// 		return
+// 	}
+
+// 	// Create a new gRPC server and register the service
+// 	grpcServer, err := NewGRPCSever(config)
+// 	if err != nil {
+// 		log.Fatalf("failed to create gRPC server: %v", err)
+// 	}
+
+// 	// Listen on the specified grpc server port
+
+// 	log.Printf("grpc server listening on: %s\n", listener.Addr().String())
+
+// 	// Start the gRPC server
+// 	if err := grpcServer.Serve(listener); err != nil {
+// 		log.Fatalf("failed to start gRPC server: %v", err)
+// 	}
+// }
+
+// func newgrpcServer(config *Config) (*grpcServer, error) {
+// 	// initialize the server with ZKP system params and an empty user directory
+// 	return &grpcServer{
+// 		RegDir:  make(map[string]RegParams),
+// 		AuthDir: make(map[string]AuthParams),
+// 		Config:  config,
+// 	}, nil
+// }
+
+// // NewGRPCServer: creates a grpc server and registers the service to that server
+// func NewGRPCSever(config *Config) (*grpc.Server, error) {
+// 	gsrv := grpc.NewServer()
+// 	srv, err := newgrpcServer(config)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	api.RegisterAuthServer(gsrv, srv)
+// 	return gsrv, nil
+// }
+
+// // Register: Simply registers a new grpc client (prover) on the server side
+// // by storing the passed-in req body containing `y1` and `y2` values
+// func (s *grpcServer) Register(ctx context.Context, req *api.RegisterRequest) (
+// 	*api.RegisterResponse, error) {
+
+// 	// ASSUMPTION: The `req.user` passed in for every user is UNIQUE
+// 	// Check if the user already exists
+
+// 	if _, userExists := s.RegDir[req.User]; userExists {
+// 		return nil, grpc_err.ErrInvalidRegistration{User: req.User}
+// 	}
+
+// 	Y1, err := util.ParseBigInt(req.Y1, "y1")
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	Y2, err := util.ParseBigInt(req.Y2, "y2")
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	s.RegDir[req.User] = RegParams{
+// 		y1: Y1,
+// 		y2: Y2,
+// 	}
+
+// 	return &api.RegisterResponse{}, nil
+// }
+
+// func (s *grpcServer) CreateAuthenticationChallenge(ctx context.Context, req *api.AuthenticationChallengeRequest) (
+// 	*api.AuthenticationChallengeResponse, error) {
+
+// 	// First check if the user is registered on the server
+// 	// Otherwise throw an error before proceeding further
+// 	if _, userExists := s.RegDir[req.User]; !userExists {
+// 		return nil, fmt.Errorf("user %s is not registered on the server", req.User)
+// 	}
+
+// 	cpzkpParams, err := s.Config.CPZKP.InitCPZKPParams()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// Create a verifier to create the authentication challenge
+// 	verifier := &cp_zkp.Verifier{}
+// 	c, err := verifier.CreateProofChallenge(cpzkpParams)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// Store the generated random value `c` and the `auth_id` in the authentication directory
+// 	// for authentication verification process in the next step
+
+// 	// We use the google's widely used `uuid` pkg to generate the authID
+// 	authID, err := uuid.NewRandom()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	R1, err := util.ParseBigInt(req.R1, "r1")
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	R2, err := util.ParseBigInt(req.R2, "r2")
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	auth_id := authID.String()
+// 	s.AuthDir[auth_id] = AuthParams{user: req.User,
+// 		c:  c,
+// 		r1: R1,
+// 		r2: R2,
+// 	}
+
+// 	return &api.AuthenticationChallengeResponse{
+// 		AuthId: auth_id,
+// 		C:      c.String(),
+// 	}, nil
+// }
+
+// func (s *grpcServer) VerifyAuthentication(ctx context.Context, req *api.AuthenticationAnswerRequest) (
+// 	*api.AuthenticationAnswerResponse, error) {
+
+// 	// First check if the authentication id passed is valid
+// 	if _, idExists := s.AuthDir[req.AuthId]; !idExists {
+// 		return nil, fmt.Errorf("invalid authentication id: %s specified", req.AuthId)
+// 	}
+
+// 	// To verify the proof, we need the system params and
+// 	// y1, y2, r1,r2, c, s
+// 	cpzkpParams, err := s.Config.CPZKP.InitCPZKPParams()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// Get the user name and `c` from the current `auth_id`
+// 	user := s.AuthDir[req.AuthId].user
+// 	c := s.AuthDir[req.AuthId].c
+
+// 	// Retrieve y1, y2, r1, r2
+// 	y1 := s.RegDir[user].y1
+// 	y2 := s.RegDir[user].y2
+// 	r1 := s.AuthDir[req.AuthId].r1
+// 	r2 := s.AuthDir[req.AuthId].r2
+
+// 	// convert `req.S` to big.Int
+// 	S, err := util.ParseBigInt(req.S, "s")
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// Create a verifier to verify the challenge
+// 	verifier := &cp_zkp.Verifier{}
+// 	isValidProof := verifier.VerifyProof(y1, y2, r1, r2, c, S, cpzkpParams)
+// 	if !isValidProof {
+// 		return nil, grpc_err.ErrInvalidChallengeResponse{S: req.S}
+// 	}
+
+// 	// If a valid proof is presented - then generate a sessionID and pass it as a response
+// 	sessionID, err := uuid.NewRandom()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	return &api.AuthenticationAnswerResponse{SessionId: sessionID.String()}, nil
+// }
+
 package server
 
 import (
 	"context"
 	"fmt"
 	"log"
-	"math/big"
 	"net"
 	"os"
+	"time"
 
-	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	grpc_err "github.com/srinathLN7/zkp_auth/api/v2/err"
 	api "github.com/srinathLN7/zkp_auth/api/v2/proto"
 	cp_zkp "github.com/srinathLN7/zkp_auth/internal/cpzkp"
+	"github.com/srinathLN7/zkp_auth/internal/database"
 	"github.com/srinathLN7/zkp_auth/lib/util"
 	"google.golang.org/grpc"
 )
@@ -23,38 +259,21 @@ type CPZKP interface {
 
 type Config struct {
 	CPZKP CPZKP
-}
-
-type RegParams struct {
-	y1 *big.Int
-	y2 *big.Int
-}
-
-type AuthParams struct {
-	user string
-	c    *big.Int
-	r1   *big.Int
-	r2   *big.Int
+	DB    *database.Database
 }
 
 type grpcServer struct {
 	api.UnimplementedAuthServer
-
-	// Simulate a server-side user directory
-	// store the `y1` and `y2` of the specific user
-	// Limited by in-memory non-persistence storage
-	RegDir map[string]RegParams
-
-	// Simulate a server-side authentication directory
-	// store the `c`, `y1` and `y2` of the specific user
-	// Limited by in-memory non-persistence storage
-	AuthDir map[string]AuthParams
-
 	*Config
 }
 
-func RunServer(config *Config) {
+const (
+	// Session TTL constants
+	AuthSessionTTL   = 5 * time.Minute // Auth session expires in 5 minutes
+	ActiveSessionTTL = 24 * time.Hour  // Active session expires in 24 hours
+)
 
+func RunServer(config *Config) {
 	err := godotenv.Load(".env")
 	if err != nil {
 		log.Fatalf("error loading .env file: %v", err)
@@ -68,13 +287,18 @@ func RunServer(config *Config) {
 		return
 	}
 
+	// Start cleanup goroutine for expired sessions (only if DB is provided)
+	if config != nil && config.DB != nil {
+		go startSessionCleanup(config.DB)
+	} else {
+		log.Printf("warning: database not provided, session cleanup disabled")
+	}
+
 	// Create a new gRPC server and register the service
-	grpcServer, err := NewGRPCSever(config)
+	grpcServer, err := NewGRPCServer(config)
 	if err != nil {
 		log.Fatalf("failed to create gRPC server: %v", err)
 	}
-
-	// Listen on the specified grpc server port
 
 	log.Printf("grpc server listening on: %s\n", listener.Addr().String())
 
@@ -85,16 +309,13 @@ func RunServer(config *Config) {
 }
 
 func newgrpcServer(config *Config) (*grpcServer, error) {
-	// initialize the server with ZKP system params and an empty user directory
 	return &grpcServer{
-		RegDir:  make(map[string]RegParams),
-		AuthDir: make(map[string]AuthParams),
-		Config:  config,
+		Config: config,
 	}, nil
 }
 
-// NewGRPCServer: creates a grpc server and registers the service to that server
-func NewGRPCSever(config *Config) (*grpc.Server, error) {
+// NewGRPCServer creates a grpc server and registers the service
+func NewGRPCServer(config *Config) (*grpc.Server, error) {
 	gsrv := grpc.NewServer()
 	srv, err := newgrpcServer(config)
 	if err != nil {
@@ -104,132 +325,176 @@ func NewGRPCSever(config *Config) (*grpc.Server, error) {
 	return gsrv, nil
 }
 
-// Register: Simply registers a new grpc client (prover) on the server side
-// by storing the passed-in req body containing `y1` and `y2` values
-func (s *grpcServer) Register(ctx context.Context, req *api.RegisterRequest) (
-	*api.RegisterResponse, error) {
+// Register handles user registration
+func (s *grpcServer) Register(ctx context.Context, req *api.RegisterRequest) (*api.RegisterResponse, error) {
+	// Ensure DB is available
+	if s.Config == nil || s.Config.DB == nil {
+		log.Printf("Register called but database is not initialized")
+		return nil, fmt.Errorf("internal server error: database not initialized")
+	}
 
-	// ASSUMPTION: The `req.user` passed in for every user is UNIQUE
-	// Check if the user already exists
+	// Check if user already exists
+	exists, err := s.Config.DB.UserExists(ctx, req.User)
+	if err != nil {
+		log.Printf("error checking user existence: %v", err)
+		return nil, fmt.Errorf("internal server error")
+	}
 
-	if _, userExists := s.RegDir[req.User]; userExists {
+	if exists {
 		return nil, grpc_err.ErrInvalidRegistration{User: req.User}
 	}
 
+	// Parse Y1 and Y2
 	Y1, err := util.ParseBigInt(req.Y1, "y1")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid y1 value: %w", err)
 	}
 
 	Y2, err := util.ParseBigInt(req.Y2, "y2")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid y2 value: %w", err)
 	}
 
-	s.RegDir[req.User] = RegParams{
-		y1: Y1,
-		y2: Y2,
+	// Register user in database
+	err = s.Config.DB.RegisterUser(ctx, req.User, Y1, Y2)
+	if err != nil {
+		log.Printf("error registering user: %v", err)
+		return nil, fmt.Errorf("failed to register user")
 	}
 
+	log.Printf("user %s registered successfully", req.User)
 	return &api.RegisterResponse{}, nil
 }
 
-func (s *grpcServer) CreateAuthenticationChallenge(ctx context.Context, req *api.AuthenticationChallengeRequest) (
-	*api.AuthenticationChallengeResponse, error) {
-
-	// First check if the user is registered on the server
-	// Otherwise throw an error before proceeding further
-	if _, userExists := s.RegDir[req.User]; !userExists {
-		return nil, fmt.Errorf("user %s is not registered on the server", req.User)
+// CreateAuthenticationChallenge creates an authentication challenge for login
+func (s *grpcServer) CreateAuthenticationChallenge(ctx context.Context, req *api.AuthenticationChallengeRequest) (*api.AuthenticationChallengeResponse, error) {
+	// Ensure DB is available
+	if s.Config == nil || s.Config.DB == nil {
+		log.Printf("CreateAuthenticationChallenge called but database is not initialized")
+		return nil, fmt.Errorf("internal server error: database not initialized")
 	}
 
+	// Check if user is registered
+	user, err := s.Config.DB.GetUserByUsername(ctx, req.User)
+	if err != nil {
+		log.Printf("user lookup error: %v", err)
+		return nil, fmt.Errorf("user %s is not registered", req.User)
+	}
+
+	// Initialize CPZKP params
 	cpzkpParams, err := s.Config.CPZKP.InitCPZKPParams()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to initialize CPZKP params: %w", err)
 	}
 
-	// Create a verifier to create the authentication challenge
+	// Create verifier and generate challenge
 	verifier := &cp_zkp.Verifier{}
 	c, err := verifier.CreateProofChallenge(cpzkpParams)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create challenge: %w", err)
 	}
 
-	// Store the generated random value `c` and the `auth_id` in the authentication directory
-	// for authentication verification process in the next step
-
-	// We use the google's widely used `uuid` pkg to generate the authID
-	authID, err := uuid.NewRandom()
-	if err != nil {
-		return nil, err
-	}
-
+	// Parse R1 and R2
 	R1, err := util.ParseBigInt(req.R1, "r1")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid r1 value: %w", err)
 	}
 
 	R2, err := util.ParseBigInt(req.R2, "r2")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid r2 value: %w", err)
 	}
 
-	auth_id := authID.String()
-	s.AuthDir[auth_id] = AuthParams{user: req.User,
-		c:  c,
-		r1: R1,
-		r2: R2,
+	// Create auth session in database
+	authID, err := s.Config.DB.CreateAuthSession(ctx, user.Username, c, R1, R2, AuthSessionTTL)
+	if err != nil {
+		log.Printf("error creating auth session: %v", err)
+		return nil, fmt.Errorf("failed to create auth session")
 	}
+
+	log.Printf("authentication challenge created for user %s with auth_id %s", req.User, authID)
 
 	return &api.AuthenticationChallengeResponse{
-		AuthId: auth_id,
+		AuthId: authID,
 		C:      c.String(),
 	}, nil
 }
 
-func (s *grpcServer) VerifyAuthentication(ctx context.Context, req *api.AuthenticationAnswerRequest) (
-	*api.AuthenticationAnswerResponse, error) {
-
-	// First check if the authentication id passed is valid
-	if _, idExists := s.AuthDir[req.AuthId]; !idExists {
-		return nil, fmt.Errorf("invalid authentication id: %s specified", req.AuthId)
+// VerifyAuthentication verifies the authentication response
+func (s *grpcServer) VerifyAuthentication(ctx context.Context, req *api.AuthenticationAnswerRequest) (*api.AuthenticationAnswerResponse, error) {
+	// Ensure DB is available
+	if s.Config == nil || s.Config.DB == nil {
+		log.Printf("VerifyAuthentication called but database is not initialized")
+		return nil, fmt.Errorf("internal server error: database not initialized")
 	}
 
-	// To verify the proof, we need the system params and
-	// y1, y2, r1,r2, c, s
+	// Get auth session from database
+	authSession, err := s.Config.DB.GetAuthSession(ctx, req.AuthId)
+	if err != nil {
+		log.Printf("auth session lookup error: %v", err)
+		return nil, fmt.Errorf("invalid or expired authentication session")
+	}
+
+	// Get user info by the user ID stored on the auth session
+	user, err := s.Config.DB.GetUserByID(ctx, authSession.UserID)
+	if err != nil {
+		log.Printf("user lookup error for auth_id %s user_id %d: %v", req.AuthId, authSession.UserID, err)
+		return nil, fmt.Errorf("user lookup failed")
+	}
+
+	// Initialize CPZKP params
 	cpzkpParams, err := s.Config.CPZKP.InitCPZKPParams()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to initialize CPZKP params: %w", err)
 	}
 
-	// Get the user name and `c` from the current `auth_id`
-	user := s.AuthDir[req.AuthId].user
-	c := s.AuthDir[req.AuthId].c
-
-	// Retrieve y1, y2, r1, r2
-	y1 := s.RegDir[user].y1
-	y2 := s.RegDir[user].y2
-	r1 := s.AuthDir[req.AuthId].r1
-	r2 := s.AuthDir[req.AuthId].r2
-
-	// convert `req.S` to big.Int
+	// Parse S (prover's response)
 	S, err := util.ParseBigInt(req.S, "s")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid s value: %w", err)
 	}
 
-	// Create a verifier to verify the challenge
+	// Create verifier and verify proof
 	verifier := &cp_zkp.Verifier{}
-	isValidProof := verifier.VerifyProof(y1, y2, r1, r2, c, S, cpzkpParams)
+	isValidProof := verifier.VerifyProof(
+		user.Y1,
+		user.Y2,
+		authSession.CommitmentR1,
+		authSession.CommitmentR2,
+		authSession.ChallengeC,
+		S,
+		cpzkpParams,
+	)
+
 	if !isValidProof {
+		log.Printf("proof verification failed for auth_id %s", req.AuthId)
 		return nil, grpc_err.ErrInvalidChallengeResponse{S: req.S}
 	}
 
-	// If a valid proof is presented - then generate a sessionID and pass it as a response
-	sessionID, err := uuid.NewRandom()
+	// Create active session
+	sessionID, err := s.Config.DB.CreateActiveSession(ctx, req.AuthId, ActiveSessionTTL)
 	if err != nil {
-		return nil, err
+		log.Printf("error creating active session: %v", err)
+		return nil, fmt.Errorf("failed to create session")
 	}
 
-	return &api.AuthenticationAnswerResponse{SessionId: sessionID.String()}, nil
+	log.Printf("authentication successful - session_id: %s", sessionID)
+
+	return &api.AuthenticationAnswerResponse{
+		SessionId: sessionID,
+	}, nil
+}
+
+// startSessionCleanup runs periodic cleanup of expired sessions
+func startSessionCleanup(db *database.Database) {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := db.CleanupExpiredSessions(ctx); err != nil {
+			log.Printf("error cleaning up expired sessions: %v", err)
+		}
+		cancel()
+	}
 }

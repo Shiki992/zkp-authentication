@@ -24,6 +24,7 @@ require (
 	github.com/fatih/color v1.15.0
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/uuid v1.3.0
+	github.com/lib/pq v1.10.9
 	github.com/spf13/cobra v1.7.0
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/net v0.9.0 // indirect
